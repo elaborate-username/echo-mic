@@ -82,6 +82,14 @@
 
   .row { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 420px; color: var(--muted); font-size: 13px; }
   .row input { flex: 1; accent-color: var(--hot); }
+  .meter { flex: 1; height: 8px; border-radius: 4px; background: var(--bg2); border: 1px solid var(--line); overflow: hidden; }
+  #lvl { height: 100%; width: 0; background: linear-gradient(90deg, var(--cool), var(--hot)); }
+  .out button {
+    font: inherit; font-size: 13px; font-weight: 600; color: var(--muted);
+    background: var(--bg2); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer;
+  }
+  .out button[aria-pressed="true"] { color: var(--bg); background: var(--cool); border-color: var(--cool); }
+  #beep { margin-left: auto; color: var(--ink); border-color: var(--hot); }
   .tip { font-size: 12px; color: var(--muted); text-align: center; max-width: 420px; margin: 0; }
   @media (prefers-reduced-motion: reduce) { #halo { transition: none; } }
 </style>
@@ -125,7 +133,13 @@
   </div>
 
   <label class="row" for="vol">Volume <input id="vol" type="range" min="0" max="1.5" step="0.01" value="1"></label>
-  <p class="tip">Loud whistling means the speaker is feeding the mic. Lower the volume, or hold the phone further away. Headphones stop it completely.</p>
+  <div class="row">Mic level <div class="meter"><div id="lvl"></div></div></div>
+  <div class="row out" role="group" aria-label="Output">
+    <button id="o-player" aria-pressed="true">Output A</button>
+    <button id="o-direct" aria-pressed="false">Output B</button>
+    <button id="beep">Test sound</button>
+  </div>
+  <p class="tip">No sound? Turn the silent switch off and the volume buttons up, then tap Test sound. Still silent? Try the other output. Whistling means the speaker feeds the mic: lower the volume or use headphones.</p>
 
 <script>
 (() => {
@@ -136,6 +150,11 @@
 
   let ctx = null, stream = null, running = false;
   let nodes = {};
+  let outMode = 'player';
+  const player = document.createElement('audio');
+  player.setAttribute('playsinline', ''); player.autoplay = true;
+  document.body.appendChild(player);
+  const lvlBar = $('lvl');
   let mode = 'echo';
   const pos = { echo: { x: 0.35, y: 0.55 }, robot: { x: 0.4, y: 0.7 } };
 
@@ -182,7 +201,7 @@
     const limiter = ctx.createDynamicsCompressor();
     limiter.threshold.value = -10; limiter.knee.value = 6; limiter.ratio.value = 12;
     limiter.attack.value = 0.003; limiter.release.value = 0.15;
-    master.connect(limiter); limiter.connect(ctx.destination);
+    master.connect(limiter);
 
     // dry voice
     const dry = ctx.createGain(); input.connect(dry); dry.connect(master);
@@ -205,23 +224,29 @@
     const analyser = ctx.createAnalyser(); analyser.fftSize = 512;
     input.connect(analyser);
 
-    nodes = { src, input, dry, delay, fb, echoWet, osc, robotWet, master, analyser };
+    nodes = { src, input, dry, delay, fb, echoWet, osc, robotWet, master, analyser, limiter, streamOut: nodes.streamOut };
     applyParams();
+    route();
   }
 
   async function start() {
     // Create and resume the audio context inside the tap, as iOS requires.
+    try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (e) {}
     const AC = window.AudioContext || window.webkitAudioContext;
     ctx = new AC({ latencyHint: 'interactive' });
     ctx.resume();
-    try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (e) {}
+    // Output A plays through an <audio> element, which iOS sends to the loud speaker.
+    // It has to start playing inside the tap, so hook it up now.
+    nodes.streamOut = ctx.createMediaStreamDestination();
+    player.srcObject = nodes.streamOut.stream;
+    player.play().catch(() => {});
     statusEl.textContent = 'Allow the microphone…';
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, latency: 0 }
       });
     } catch (e) {
-      ctx.close(); ctx = null;
+      ctx.close(); ctx = null; nodes = {}; player.srcObject = null;
       statusEl.innerHTML = 'No microphone access. In Safari tap <b>aA</b> → Website Settings → Microphone → Allow, then tap again.';
       return;
     }
@@ -243,6 +268,8 @@
     statusEl.textContent = 'Stopped. Tap the microphone to start';
     led.setAttribute('fill', '#555c80');
     halo.style.opacity = 0;
+    lvlBar.style.width = 0;
+    player.pause(); player.srcObject = null;
   }
 
   const buf = new Float32Array(512);
@@ -253,10 +280,40 @@
     const lvl = Math.min(1, Math.sqrt(s / buf.length) * 6);
     halo.style.opacity = 0.25 + lvl * 0.75;
     halo.style.transform = 'scale(' + (0.7 + lvl * 0.6) + ')';
+    lvlBar.style.width = (lvl * 100) + '%';
     requestAnimationFrame(meter);
   }
 
   micBtn.addEventListener('click', () => { running ? stop() : start(); });
+
+  function route() {
+    if (!ctx || !nodes.limiter) return;
+    try { nodes.limiter.disconnect(); } catch (e) {}
+    if (outMode === 'direct') {
+      player.pause();
+      nodes.limiter.connect(ctx.destination);
+    } else {
+      nodes.limiter.connect(nodes.streamOut);
+      player.play().catch(() => {});
+    }
+  }
+  function setOut(m) {
+    outMode = m;
+    $('o-player').setAttribute('aria-pressed', m === 'player');
+    $('o-direct').setAttribute('aria-pressed', m === 'direct');
+    if (ctx) ctx.resume();
+    route();
+  }
+  $('o-player').addEventListener('click', () => setOut('player'));
+  $('o-direct').addEventListener('click', () => setOut('direct'));
+
+  $('beep').addEventListener('click', () => {
+    if (!running) { statusEl.textContent = 'Tap the microphone first, then Test sound.'; return; }
+    ctx.resume(); if (outMode === 'player') player.play().catch(() => {});
+    const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime;
+    o.frequency.value = 660; g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+    o.connect(g); g.connect(nodes.master); o.start(t); o.stop(t + 0.5);
+  });
 
   function setMode(m) {
     mode = m;
