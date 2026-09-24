@@ -27,42 +27,52 @@
     color: var(--ink);
     font: 15px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
     display: flex; flex-direction: column; align-items: center;
-    padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px calc(env(safe-area-inset-bottom, 0px) + 12px);
-    gap: 14px;
+    padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px calc(env(safe-area-inset-bottom, 0px) + 10px);
+    gap: 16px;
     overflow: hidden;
-    user-select: none; -webkit-user-select: none;
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
     touch-action: none;
   }
   h1 { margin: 0; font-size: 13px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 
-  /* Microphone */
+  /* Microphone with countdown ring */
   #mic {
     position: relative; border: 0; background: none; padding: 0; cursor: pointer;
-    width: 128px; height: 190px; flex: none;
+    width: 190px; height: 190px; flex: none; touch-action: none;
+    -webkit-touch-callout: none;
   }
-  #mic svg { width: 100%; height: 100%; overflow: visible; }
+  #mic svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  #ring-bg { fill: none; stroke: var(--line); stroke-width: 6; }
+  #ring { fill: none; stroke: var(--hot); stroke-width: 6; stroke-linecap: round;
+          transform: rotate(-90deg); transform-origin: 95px 95px; }
   #halo {
-    position: absolute; left: 50%; top: 62px; width: 150px; height: 150px;
-    margin: -75px 0 0 -75px; border-radius: 50%;
+    position: absolute; left: 50%; top: 50%; width: 170px; height: 170px;
+    margin: -85px 0 0 -85px; border-radius: 50%;
     background: radial-gradient(circle, var(--hot) 0%, transparent 65%);
-    opacity: 0; transform: scale(.6); pointer-events: none;
+    opacity: 0; pointer-events: none;
   }
-  #mic:focus-visible { outline: 2px solid var(--cool); outline-offset: 6px; border-radius: 20px; }
+  #count {
+    position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%);
+    background: var(--bg); padding: 0 10px; border-radius: 999px;
+    font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--hot);
+  }
+  #mic:focus-visible { outline: 2px solid var(--cool); outline-offset: 4px; border-radius: 50%; }
   .status { font-size: 14px; color: var(--muted); min-height: 1.4em; text-align: center; }
   .status b { color: var(--ink); }
 
-  /* Effect switch */
-  .modes { display: flex; gap: 8px; }
-  .modes button {
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .chips button {
     font: inherit; font-weight: 600; color: var(--muted);
     background: var(--bg2); border: 1px solid var(--line); border-radius: 999px;
-    padding: 8px 18px; cursor: pointer;
+    padding: 8px 16px; cursor: pointer;
   }
-  .modes button[aria-pressed="true"] { color: var(--bg); background: var(--cool); border-color: var(--cool); }
+  .chips button[aria-pressed="true"] { color: var(--bg); background: var(--cool); border-color: var(--cool); }
+  .chips button:disabled { opacity: .4; }
+  #play { color: var(--ink); border-color: var(--hot); min-width: 92px; }
 
   /* XY pad */
   #pad {
-    position: relative; width: 100%; max-width: 420px; flex: 1 1 auto; min-height: 160px;
+    position: relative; width: 100%; max-width: 420px; flex: 1 1 auto; min-height: 140px;
     border-radius: 18px; background:
       linear-gradient(var(--line) 1px, transparent 1px) 0 0 / 100% 25%,
       linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0 / 25% 100%,
@@ -82,46 +92,49 @@
 
   .row { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 420px; color: var(--muted); font-size: 13px; }
   .row input { flex: 1; accent-color: var(--hot); }
-  .meter { flex: 1; height: 8px; border-radius: 4px; background: var(--bg2); border: 1px solid var(--line); overflow: hidden; }
-  #lvl { height: 100%; width: 0; background: linear-gradient(90deg, var(--cool), var(--hot)); }
   .out button {
     font: inherit; font-size: 13px; font-weight: 600; color: var(--muted);
     background: var(--bg2); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer;
   }
   .out button[aria-pressed="true"] { color: var(--bg); background: var(--cool); border-color: var(--cool); }
-  #gstat { margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink); }
   #beep { margin-left: auto; color: var(--ink); border-color: var(--hot); }
   .tip { font-size: 12px; color: var(--muted); text-align: center; max-width: 420px; margin: 0; }
-  @media (prefers-reduced-motion: reduce) { #halo { transition: none; } }
 </style>
 </head>
 <body>
   <h1>Echo Mic</h1>
 
-  <button id="mic" aria-label="Start microphone">
+  <button id="mic" aria-label="Hold to record">
     <div id="halo"></div>
-    <svg viewBox="0 0 128 190" aria-hidden="true">
+    <svg viewBox="0 0 190 190" aria-hidden="true">
       <defs>
         <linearGradient id="chrome" x1="0" x2="1">
           <stop offset="0" stop-color="#6b7299"/><stop offset=".35" stop-color="#e9ecf8"/>
           <stop offset=".6" stop-color="#b3b9d6"/><stop offset="1" stop-color="#4a5075"/>
         </linearGradient>
-        <pattern id="mesh" width="7" height="7" patternUnits="userSpaceOnUse">
-          <circle cx="3.5" cy="3.5" r="1.6" fill="#2a3052"/>
+        <pattern id="mesh" width="6" height="6" patternUnits="userSpaceOnUse">
+          <circle cx="3" cy="3" r="1.3" fill="#2a3052"/>
         </pattern>
       </defs>
-      <rect x="30" y="8" width="68" height="108" rx="34" fill="url(#chrome)"/>
-      <rect x="30" y="8" width="68" height="108" rx="34" fill="url(#mesh)" opacity=".75"/>
-      <rect x="30" y="58" width="68" height="8" fill="#4a5075"/>
-      <rect id="led" x="58" y="84" width="12" height="4" rx="2" fill="#555c80"/>
-      <path d="M16 72 v6 a48 48 0 0 0 96 0 v-6" fill="none" stroke="url(#chrome)" stroke-width="7" stroke-linecap="round"/>
-      <rect x="60" y="126" width="8" height="40" fill="url(#chrome)"/>
-      <rect x="34" y="164" width="60" height="10" rx="5" fill="url(#chrome)"/>
+      <circle id="ring-bg" cx="95" cy="95" r="90"/>
+      <circle id="ring" cx="95" cy="95" r="90"/>
+      <g transform="translate(47 22) scale(0.75)">
+        <rect x="30" y="8" width="68" height="108" rx="34" fill="url(#chrome)"/>
+        <rect x="30" y="8" width="68" height="108" rx="34" fill="url(#mesh)" opacity=".75"/>
+        <rect x="30" y="58" width="68" height="8" fill="#4a5075"/>
+        <rect id="led" x="58" y="84" width="12" height="4" rx="2" fill="#555c80"/>
+        <path d="M16 72 v6 a48 48 0 0 0 96 0 v-6" fill="none" stroke="url(#chrome)" stroke-width="7" stroke-linecap="round"/>
+        <rect x="60" y="126" width="8" height="40" fill="url(#chrome)"/>
+        <rect x="34" y="164" width="60" height="10" rx="5" fill="url(#chrome)"/>
+      </g>
     </svg>
+    <div id="count">20 s</div>
   </button>
-  <div class="status" id="status">Tap the microphone to start</div>
+  <div class="status" id="status">Hold the microphone to record, up to 20 seconds</div>
 
-  <div class="modes" role="group" aria-label="Effect">
+  <div class="chips">
+    <button id="play" disabled>▶ Play</button>
+    <button id="loop" aria-pressed="false">Loop</button>
     <button id="m-echo" aria-pressed="true">Echo</button>
     <button id="m-robot" aria-pressed="false">Robot</button>
   </div>
@@ -133,41 +146,46 @@
     <div id="dot"></div>
   </div>
 
-  <label class="row" for="boost">Mic boost <input id="boost" type="range" min="0.5" max="6" step="0.1" value="1.8"></label>
   <label class="row" for="vol">Volume <input id="vol" type="range" min="0" max="1.5" step="0.01" value="1"></label>
-  <div class="row">Mic level <div class="meter"><div id="lvl"></div></div></div>
-  <div class="row out">Whistle guard <button id="guard" aria-pressed="true">On</button><span id="gstat"></span></div>
   <div class="row out" role="group" aria-label="Output">
     <button id="o-player" aria-pressed="true">Output A</button>
     <button id="o-direct" aria-pressed="false">Output B</button>
     <button id="beep">Test sound</button>
   </div>
-  <p class="tip">No sound? Turn the silent switch off and the volume buttons up, then tap Test sound. Still silent? Try the other output. Whistling means the speaker feeds the mic: lower the volume or use headphones.</p>
+  <p class="tip">No sound? Turn the silent switch off and the volume up, tap Test sound, and try the other output. Move the pad while it plays.</p>
 
 <script>
 (() => {
+  const MAX_SEC = 20;
   const $ = id => document.getElementById(id);
   const micBtn = $('mic'), statusEl = $('status'), halo = $('halo'), led = $('led');
+  const ring = $('ring'), countEl = $('count'), playBtn = $('play'), loopBtn = $('loop');
   const pad = $('pad'), dot = $('dot'), readout = $('readout');
   const xlab = $('xlab'), ylab = $('ylab');
+  const RING_LEN = 2 * Math.PI * 90;
+  ring.style.strokeDasharray = RING_LEN;
 
-  let ctx = null, stream = null, running = false;
-  let nodes = {};
-  let outMode = 'player';
+  let ctx = null, nodes = null;
+  let mode = 'echo', outMode = 'player', loop = false;
+  const pos = { echo: { x: 0.35, y: 0.55 }, robot: { x: 0.4, y: 0.7 } };
+
+  // Recording state
+  let stream = null, recSrc = null, proc = null, chunks = [], recording = false, recStart = 0;
+  let pressId = 0, holding = false;
+  let clip = null, source = null;
+
   const player = document.createElement('audio');
   player.setAttribute('playsinline', ''); player.autoplay = true;
   document.body.appendChild(player);
-  const lvlBar = $('lvl');
-  const gstat = $('gstat');
-  let guardOn = true;
-  let mode = 'echo';
-  const pos = { echo: { x: 0.35, y: 0.55 }, robot: { x: 0.4, y: 0.7 } };
 
+  function setSession(type) {
+    try { if (navigator.audioSession) navigator.audioSession.type = type; } catch (e) {}
+  }
+
+  // ---------- effect settings ----------
   function params() {
     const p = pos[mode];
-    if (mode === 'echo') {
-      return { time: 0.05 + p.x * 0.75, feedback: p.y * 0.85, wet: 0.5 + p.y * 0.7 };
-    }
+    if (mode === 'echo') return { time: 0.05 + p.x * 0.75, feedback: p.y * 0.85, wet: 0.5 + p.y * 0.7 };
     return { freq: 20 + p.x * 180, wet: p.y };
   }
 
@@ -177,55 +195,43 @@
     dot.style.top = ((1 - p.y) * 100) + '%';
     const v = params();
     if (mode === 'echo') {
-      xlab.textContent = 'Timing →'; ylab.textContent = 'Intensity →';
+      xlab.textContent = 'Timing →';
       readout.textContent = Math.round(v.time * 1000) + ' ms · ' + Math.round(p.y * 100) + '%';
     } else {
-      xlab.textContent = 'Pitch of buzz →'; ylab.textContent = 'Intensity →';
+      xlab.textContent = 'Pitch of buzz →';
       readout.textContent = Math.round(v.freq) + ' Hz · ' + Math.round(p.y * 100) + '%';
     }
+    ylab.textContent = 'Intensity →';
   }
 
   function applyParams() {
-    if (!ctx) return;
-    const t = ctx.currentTime, v = params();
-    const echoOn = mode === 'echo';
+    if (!nodes) return;
+    const t = ctx.currentTime, v = params(), echoOn = mode === 'echo';
     nodes.echoWet.gain.setTargetAtTime(echoOn ? v.wet : 0, t, 0.03);
     nodes.fb.gain.setTargetAtTime(echoOn ? v.feedback : 0, t, 0.03);
     if (echoOn) nodes.delay.delayTime.setTargetAtTime(v.time, t, 0.05);
     nodes.robotWet.gain.setTargetAtTime(echoOn ? 0 : v.wet, t, 0.03);
-    // In echo mode the dry voice is kept low: you hear yourself anyway, and it is the main whistle path.
-    nodes.dry.gain.setTargetAtTime(echoOn ? 0.45 : 1 - v.wet * 0.9, t, 0.03);
+    nodes.dry.gain.setTargetAtTime(echoOn ? 0.8 : 1 - v.wet * 0.9, t, 0.03);
     if (!echoOn) nodes.osc.frequency.setTargetAtTime(v.freq, t, 0.03);
   }
 
-  function buildGraph() {
-    const src = ctx.createMediaStreamSource(stream);
-    const input = ctx.createGain(); input.gain.value = +$('boost').value;
-    src.connect(input);
+  // ---------- audio graph (built once, inside the first tap) ----------
+  function ensureCtx() {
+    if (ctx) { ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    ctx = new AC({ latencyHint: 'interactive' });
+    ctx.resume();
 
+    const input = ctx.createGain();
     const master = ctx.createGain(); master.gain.value = +$('vol').value;
     const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -10; limiter.knee.value = 6; limiter.ratio.value = 12;
+    limiter.threshold.value = -8; limiter.knee.value = 6; limiter.ratio.value = 12;
     limiter.attack.value = 0.003; limiter.release.value = 0.15;
-    // Whistle guard: a chain of narrow cut filters, idle until a whistle is found,
-    // then a gain stage that can briefly duck everything.
-    const notches = [];
-    let chain = master;
-    for (let i = 0; i < 8; i++) {
-      const f = ctx.createBiquadFilter();
-      f.type = 'peaking'; f.frequency.value = 1000; f.Q.value = 30; f.gain.value = 0;
-      chain.connect(f); chain = f; notches.push(f);
-    }
-    const duck = ctx.createGain();
-    chain.connect(duck); duck.connect(limiter);
-    const outAn = ctx.createAnalyser();
-    outAn.fftSize = 2048; outAn.smoothingTimeConstant = 0;
-    limiter.connect(outAn);
+    master.connect(limiter);
 
-    // dry voice
     const dry = ctx.createGain(); input.connect(dry); dry.connect(master);
 
-    // echo: delay with feedback loop, darkened a little each repeat
+    // echo: delay with a feedback loop, darkened a little each repeat
     const delay = ctx.createDelay(1.5);
     const fb = ctx.createGain();
     const tone = ctx.createBiquadFilter(); tone.type = 'lowpass'; tone.frequency.value = 3500;
@@ -235,153 +241,28 @@
 
     // robot: ring modulation (voice multiplied by a sine)
     const ring = ctx.createGain(); ring.gain.value = 0;
-    const osc = ctx.createOscillator(); osc.type = 'sine'; osc.frequency.value = 60;
+    const osc = ctx.createOscillator(); osc.frequency.value = 60;
     osc.connect(ring.gain); osc.start();
     const robotWet = ctx.createGain(); robotWet.gain.value = 0;
     input.connect(ring); ring.connect(robotWet); robotWet.connect(master);
 
     const analyser = ctx.createAnalyser(); analyser.fftSize = 512;
-    input.connect(analyser);
+    limiter.connect(analyser);
 
-    nodes = { src, input, dry, delay, fb, echoWet, osc, robotWet, master, analyser, limiter, streamOut: nodes.streamOut,
-      notches, duck, outAn, slot: 0, caught: 0 };
-    gstat.textContent = guardOn ? 'listening' : '';
+    // Output A plays through an <audio> element (iOS sends it to the loud speaker);
+    // Output B is the plain Web Audio output.
+    const streamOut = ctx.createMediaStreamDestination();
+    player.srcObject = streamOut.stream;
+    player.play().catch(() => {});
+
+    nodes = { input, dry, delay, fb, echoWet, osc, robotWet, master, limiter, analyser, streamOut };
     applyParams();
     route();
-  }
-
-  async function start() {
-    // Create and resume the audio context inside the tap, as iOS requires.
-    try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (e) {}
-    const AC = window.AudioContext || window.webkitAudioContext;
-    ctx = new AC({ latencyHint: 'interactive' });
-    ctx.resume();
-    // Output A plays through an <audio> element, which iOS sends to the loud speaker.
-    // It has to start playing inside the tap, so hook it up now.
-    nodes.streamOut = ctx.createMediaStreamDestination();
-    player.srcObject = nodes.streamOut.stream;
-    player.play().catch(() => {});
-    statusEl.textContent = 'Allow the microphone…';
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, latency: 0 }
-      });
-    } catch (e) {
-      ctx.close(); ctx = null; nodes = {}; player.srcObject = null;
-      statusEl.innerHTML = 'No microphone access. In Safari tap <b>aA</b> → Website Settings → Microphone → Allow, then tap again.';
-      return;
-    }
-    await ctx.resume();
-    buildGraph();
-    running = true;
-    micBtn.setAttribute('aria-label', 'Stop microphone');
-    statusEl.innerHTML = '<b>Live.</b> Speak! Tap the mic to stop.';
-    led.setAttribute('fill', '#ff5c8a');
     meter();
   }
 
-  function stop() {
-    gstat.textContent = '';
-    running = false;
-    if (stream) stream.getTracks().forEach(t => t.stop());
-    if (ctx) ctx.close();
-    ctx = null; stream = null; nodes = {};
-    micBtn.setAttribute('aria-label', 'Start microphone');
-    statusEl.textContent = 'Stopped. Tap the microphone to start';
-    led.setAttribute('fill', '#555c80');
-    halo.style.opacity = 0;
-    lvlBar.style.width = 0;
-    player.pause(); player.srcObject = null;
-  }
-
-  const buf = new Float32Array(512);
-  function meter() {
-    if (!running) return;
-    nodes.analyser.getFloatTimeDomainData(buf);
-    let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
-    const lvl = Math.min(1, Math.sqrt(s / buf.length) * 6);
-    halo.style.opacity = 0.25 + lvl * 0.75;
-    halo.style.transform = 'scale(' + (0.7 + lvl * 0.6) + ')';
-    lvlBar.style.width = (lvl * 100) + '%';
-    guard();
-    requestAnimationFrame(meter);
-  }
-
-  micBtn.addEventListener('click', () => { running ? stop() : start(); });
-
-  // Watch the output for a whistle: one pitch above 400 Hz standing far above the
-  // rest of the spectrum, holding its pitch and loudness for a moment. (Below 400 Hz
-  // a phone speaker hardly plays, and that is where the pitch of a voice sits.)
-  const spec = new Float32Array(1024);
-  let cand = -1, since = 0, top = -Infinity;
-  function guard() {
-    if (!guardOn) return;
-    const an = nodes.outAn;
-    an.getFloatFrequencyData(spec);
-    const binHz = ctx.sampleRate / an.fftSize;
-    const lo = Math.ceil(400 / binHz), hi = Math.min(spec.length - 2, Math.floor(9000 / binHz));
-    let peak = -Infinity, pi = -1, sum = 0;
-    for (let i = lo; i <= hi; i++) {
-      const v = spec[i]; sum += v;
-      if (v > peak) { peak = v; pi = i; }
-    }
-    const mean = sum / (hi - lo + 1);
-    const now = performance.now();
-    if (peak > -50 && peak - mean > 28) {
-      if (cand < 0 || Math.abs(pi - cand) > 2) { cand = pi; since = now; top = peak; }
-      top = Math.max(top, peak);
-      // A voice fades between syllables; a whistle holds or grows.
-      if (top - peak > 6) { cand = pi; since = now; top = peak; }
-    } else { cand = -1; }
-    // A steady pitch at steady loudness for 180 ms is treated as a whistle.
-    if (cand < 0 || now - since < 180) return;
-    // Refine the pitch between neighbouring bins, then cut it.
-    const a = spec[pi - 1], b = spec[pi], c = spec[pi + 1];
-    const off = 0.5 * (a - c) / (a - 2 * b + c || 1);
-    squash((pi + off) * binHz);
-    cand = -1;
-  }
-
-  function squash(hz) {
-    const t = ctx.currentTime;
-    // Reuse a filter already near this pitch and cut deeper, otherwise take the next one.
-    let f = nodes.notches.find(n => n.gain.value < 0 && Math.abs(n.frequency.value - hz) / hz < 0.03);
-    if (f) {
-      f.gain.setValueAtTime(Math.max(-40, f.gain.value - 8), t);
-    } else {
-      f = nodes.notches[nodes.slot++ % nodes.notches.length];
-      f.frequency.setValueAtTime(hz, t);
-      f.gain.setValueAtTime(-24, t);
-    }
-    // Duck the whole output for a moment so the loop dies out.
-    nodes.duck.gain.cancelScheduledValues(t);
-    nodes.duck.gain.setTargetAtTime(0.1, t, 0.005);
-    nodes.duck.gain.setTargetAtTime(1, t + 0.5, 0.3);
-    // Each whistle also turns Mic boost down a notch, so the app settles just below
-    // the point where this phone starts to whistle.
-    const boost = $('boost');
-    const nb = Math.max(+boost.min, +boost.value * 0.85);
-    boost.value = nb.toFixed(1);
-    nodes.input.gain.setTargetAtTime(nb, t, 0.02);
-    nodes.caught++;
-    gstat.textContent = 'stopped ' + (hz >= 1000 ? (hz / 1000).toFixed(2) + ' kHz' : Math.round(hz) + ' Hz') +
-      ' · ' + nodes.caught + ' caught';
-  }
-
-  $('guard').addEventListener('click', () => {
-    guardOn = !guardOn;
-    $('guard').setAttribute('aria-pressed', guardOn);
-    $('guard').textContent = guardOn ? 'On' : 'Off';
-    if (ctx && nodes.notches) {
-      // Turning the guard off also releases every cut.
-      if (!guardOn) nodes.notches.forEach(n => n.gain.setValueAtTime(0, ctx.currentTime));
-      gstat.textContent = guardOn ? 'listening' : '';
-    }
-    cand = -1;
-  });
-
   function route() {
-    if (!ctx || !nodes.limiter) return;
+    if (!nodes) return;
     try { nodes.limiter.disconnect(ctx.destination); } catch (e) {}
     try { nodes.limiter.disconnect(nodes.streamOut); } catch (e) {}
     if (outMode === 'direct') {
@@ -392,22 +273,186 @@
       player.play().catch(() => {});
     }
   }
-  function setOut(m) {
-    outMode = m;
-    $('o-player').setAttribute('aria-pressed', m === 'player');
-    $('o-direct').setAttribute('aria-pressed', m === 'direct');
-    if (ctx) ctx.resume();
-    route();
-  }
-  $('o-player').addEventListener('click', () => setOut('player'));
-  $('o-direct').addEventListener('click', () => setOut('direct'));
 
-  $('beep').addEventListener('click', () => {
-    if (!running) { statusEl.textContent = 'Tap the microphone first, then Test sound.'; return; }
-    ctx.resume(); if (outMode === 'player') player.play().catch(() => {});
-    const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime;
-    o.frequency.value = 660; g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
-    o.connect(g); g.connect(nodes.master); o.start(t); o.stop(t + 0.5);
+  // ---------- recording ----------
+  async function beginPress() {
+    const id = ++pressId;
+    holding = true;
+    stopPlayback();
+    setSession('play-and-record');
+    ensureCtx();
+    if (!stream) {
+      statusEl.textContent = 'Opening the microphone…';
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true }
+        });
+      } catch (e) {
+        setSession('playback');
+        statusEl.innerHTML = 'No microphone access. In Safari tap <b>aA</b> → Website Settings → Microphone → Allow.';
+        return;
+      }
+      // The permission prompt ends the hold. Ask for a fresh press rather than record nothing.
+      if (!holding || id !== pressId) {
+        closeMic();
+        statusEl.innerHTML = '<b>Microphone ready.</b> Now hold it to record.';
+        return;
+      }
+    }
+    startRecording();
+  }
+
+  function startRecording() {
+    chunks = [];
+    recSrc = ctx.createMediaStreamSource(stream);
+    proc = ctx.createScriptProcessor(4096, 1, 1);
+    proc.onaudioprocess = e => {
+      if (recording) chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    };
+    const mute = ctx.createGain(); mute.gain.value = 0;
+    recSrc.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+    recording = true;
+    recStart = performance.now();
+    led.setAttribute('fill', '#ff5c8a');
+    micBtn.setAttribute('aria-label', 'Recording. Release to stop');
+    tick();
+  }
+
+  function tick() {
+    if (!recording) return;
+    const el = (performance.now() - recStart) / 1000;
+    const left = Math.max(0, MAX_SEC - el);
+    ring.style.strokeDashoffset = RING_LEN * (1 - left / MAX_SEC);
+    countEl.textContent = Math.ceil(left) + ' s';
+    statusEl.innerHTML = '<b>Recording…</b> ' + left.toFixed(1) + ' s left. Let go to stop.';
+    if (left <= 0) { finishRecording(); return; }
+    requestAnimationFrame(tick);
+  }
+
+  function endPress() {
+    holding = false;
+    if (recording) finishRecording();
+  }
+
+  function finishRecording() {
+    recording = false;
+    try { recSrc.disconnect(); proc.disconnect(); } catch (e) {}
+    proc.onaudioprocess = null;
+    closeMic();
+    led.setAttribute('fill', '#555c80');
+    micBtn.setAttribute('aria-label', 'Hold to record');
+    ring.style.strokeDashoffset = 0;
+    countEl.textContent = MAX_SEC + ' s';
+
+    let len = chunks.reduce((n, c) => n + c.length, 0);
+    len = Math.min(len, Math.round(MAX_SEC * ctx.sampleRate));
+    if (len < ctx.sampleRate * 0.2) {
+      statusEl.textContent = 'Too short. Hold the microphone while you speak.';
+      return;
+    }
+    const data = new Float32Array(len);
+    let off = 0;
+    for (const c of chunks) {
+      if (off >= len) break;
+      data.set(c.subarray(0, len - off), off); off += c.length;
+    }
+    // Make quiet recordings loud: scale so the loudest moment sits just under full level.
+    let peak = 0;
+    for (let i = 0; i < len; i++) { const a = Math.abs(data[i]); if (a > peak) peak = a; }
+    const gain = peak > 0.001 ? Math.min(20, 0.9 / peak) : 1;
+    for (let i = 0; i < len; i++) data[i] *= gain;
+    // Short fades so the clip does not click at the ends.
+    const fade = Math.min(len >> 1, Math.round(ctx.sampleRate * 0.01));
+    for (let i = 0; i < fade; i++) { data[i] *= i / fade; data[len - 1 - i] *= i / fade; }
+
+    clip = ctx.createBuffer(1, len, ctx.sampleRate);
+    clip.getChannelData(0).set(data);
+    chunks = [];
+    playBtn.disabled = false;
+    startPlayback();
+  }
+
+  function closeMic() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null;
+    // With the mic closed, iOS can use the loud speaker and ignore the silent switch.
+    setSession('playback');
+  }
+
+  // ---------- playback ----------
+  function startPlayback() {
+    if (!clip) return;
+    ensureCtx();
+    stopPlayback();
+    route();
+    const s = ctx.createBufferSource();
+    s.buffer = clip;
+    s.loop = loop;
+    s.connect(nodes.input);
+    s.onended = () => { if (source === s) { source = null; showIdle(); } };
+    s.start();
+    source = s;
+    playBtn.textContent = '■ Stop';
+    statusEl.innerHTML = '<b>Playing ' + clip.duration.toFixed(1) + ' s.</b> Move the pad to change the effect.';
+  }
+
+  function stopPlayback() {
+    if (source) {
+      const s = source;
+      source = null;
+      try { s.stop(); } catch (e) {}
+    }
+    showIdle();
+  }
+
+  function showIdle() {
+    playBtn.textContent = '▶ Play';
+    if (!recording) {
+      statusEl.textContent = clip
+        ? 'Play it again, or hold the microphone to record a new one'
+        : 'Hold the microphone to record, up to 20 seconds';
+    }
+  }
+
+  // ---------- level glow ----------
+  const buf = new Float32Array(512);
+  function meter() {
+    requestAnimationFrame(meter);
+    let lvl = 0;
+    if (recording) {
+      const c = chunks[chunks.length - 1];
+      if (c) { let s = 0; for (let i = 0; i < c.length; i += 8) s += c[i] * c[i]; lvl = Math.sqrt(s / (c.length / 8)) * 8; }
+    } else {
+      nodes.analyser.getFloatTimeDomainData(buf);
+      let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
+      lvl = Math.sqrt(s / buf.length) * 5;
+    }
+    lvl = Math.min(1, lvl);
+    halo.style.opacity = recording ? 0.35 + lvl * 0.65 : lvl * 0.9;
+    halo.style.transform = 'scale(' + (0.7 + lvl * 0.5) + ')';
+  }
+
+  // ---------- controls ----------
+  micBtn.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    try { micBtn.setPointerCapture(e.pointerId); } catch (err) {}
+    beginPress();
+  });
+  micBtn.addEventListener('pointerup', endPress);
+  micBtn.addEventListener('pointercancel', endPress);
+  micBtn.addEventListener('contextmenu', e => e.preventDefault());
+  micBtn.addEventListener('keydown', e => {
+    if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); beginPress(); }
+  });
+  micBtn.addEventListener('keyup', e => {
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); endPress(); }
+  });
+
+  playBtn.addEventListener('click', () => { source ? stopPlayback() : startPlayback(); });
+  loopBtn.addEventListener('click', () => {
+    loop = !loop;
+    loopBtn.setAttribute('aria-pressed', loop);
+    if (source) source.loop = loop;
   });
 
   function setMode(m) {
@@ -428,15 +473,32 @@
   pad.addEventListener('pointerdown', e => { pad.setPointerCapture(e.pointerId); fromEvent(e); e.preventDefault(); });
   pad.addEventListener('pointermove', e => { if (pad.hasPointerCapture(e.pointerId)) fromEvent(e); });
 
-  $('boost').addEventListener('input', e => {
-    if (ctx) nodes.input.gain.setTargetAtTime(+e.target.value, ctx.currentTime, 0.02);
-  });
   $('vol').addEventListener('input', e => {
-    if (ctx) nodes.master.gain.setTargetAtTime(+e.target.value, ctx.currentTime, 0.02);
+    if (nodes) nodes.master.gain.setTargetAtTime(+e.target.value, ctx.currentTime, 0.02);
+  });
+
+  function setOut(m) {
+    outMode = m;
+    $('o-player').setAttribute('aria-pressed', m === 'player');
+    $('o-direct').setAttribute('aria-pressed', m === 'direct');
+    ensureCtx();
+    route();
+  }
+  $('o-player').addEventListener('click', () => setOut('player'));
+  $('o-direct').addEventListener('click', () => setOut('direct'));
+
+  $('beep').addEventListener('click', () => {
+    setSession('playback');
+    ensureCtx();
+    if (outMode === 'player') player.play().catch(() => {});
+    const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime;
+    o.frequency.value = 660; g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+    o.connect(g); g.connect(nodes.master); o.start(t); o.stop(t + 0.5);
   });
 
   // iOS suspends audio when the app goes to the background; resume on return.
   document.addEventListener('visibilitychange', () => {
+    if (document.hidden && recording) endPress();
     if (!document.hidden && ctx && ctx.state !== 'running') ctx.resume();
   });
 
