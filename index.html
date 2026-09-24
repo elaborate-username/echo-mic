@@ -89,6 +89,7 @@
     background: var(--bg2); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer;
   }
   .out button[aria-pressed="true"] { color: var(--bg); background: var(--cool); border-color: var(--cool); }
+  #gstat { margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink); }
   #beep { margin-left: auto; color: var(--ink); border-color: var(--hot); }
   .tip { font-size: 12px; color: var(--muted); text-align: center; max-width: 420px; margin: 0; }
   @media (prefers-reduced-motion: reduce) { #halo { transition: none; } }
@@ -134,6 +135,7 @@
 
   <label class="row" for="vol">Volume <input id="vol" type="range" min="0" max="1.5" step="0.01" value="1"></label>
   <div class="row">Mic level <div class="meter"><div id="lvl"></div></div></div>
+  <div class="row out">Whistle guard <button id="guard" aria-pressed="true">On</button><span id="gstat"></span></div>
   <div class="row out" role="group" aria-label="Output">
     <button id="o-player" aria-pressed="true">Output A</button>
     <button id="o-direct" aria-pressed="false">Output B</button>
@@ -155,6 +157,8 @@
   player.setAttribute('playsinline', ''); player.autoplay = true;
   document.body.appendChild(player);
   const lvlBar = $('lvl');
+  const gstat = $('gstat');
+  let guardOn = true;
   let mode = 'echo';
   const pos = { echo: { x: 0.35, y: 0.55 }, robot: { x: 0.4, y: 0.7 } };
 
@@ -201,7 +205,20 @@
     const limiter = ctx.createDynamicsCompressor();
     limiter.threshold.value = -10; limiter.knee.value = 6; limiter.ratio.value = 12;
     limiter.attack.value = 0.003; limiter.release.value = 0.15;
-    master.connect(limiter);
+    // Whistle guard: a chain of narrow cut filters, idle until a whistle is found,
+    // then a gain stage that can briefly duck everything.
+    const notches = [];
+    let chain = master;
+    for (let i = 0; i < 8; i++) {
+      const f = ctx.createBiquadFilter();
+      f.type = 'peaking'; f.frequency.value = 1000; f.Q.value = 30; f.gain.value = 0;
+      chain.connect(f); chain = f; notches.push(f);
+    }
+    const duck = ctx.createGain();
+    chain.connect(duck); duck.connect(limiter);
+    const outAn = ctx.createAnalyser();
+    outAn.fftSize = 2048; outAn.smoothingTimeConstant = 0;
+    limiter.connect(outAn);
 
     // dry voice
     const dry = ctx.createGain(); input.connect(dry); dry.connect(master);
@@ -224,7 +241,9 @@
     const analyser = ctx.createAnalyser(); analyser.fftSize = 512;
     input.connect(analyser);
 
-    nodes = { src, input, dry, delay, fb, echoWet, osc, robotWet, master, analyser, limiter, streamOut: nodes.streamOut };
+    nodes = { src, input, dry, delay, fb, echoWet, osc, robotWet, master, analyser, limiter, streamOut: nodes.streamOut,
+      notches, duck, outAn, slot: 0, caught: 0 };
+    gstat.textContent = guardOn ? 'listening' : '';
     applyParams();
     route();
   }
@@ -260,6 +279,7 @@
   }
 
   function stop() {
+    gstat.textContent = '';
     running = false;
     if (stream) stream.getTracks().forEach(t => t.stop());
     if (ctx) ctx.close();
@@ -281,14 +301,75 @@
     halo.style.opacity = 0.25 + lvl * 0.75;
     halo.style.transform = 'scale(' + (0.7 + lvl * 0.6) + ')';
     lvlBar.style.width = (lvl * 100) + '%';
+    guard();
     requestAnimationFrame(meter);
   }
 
   micBtn.addEventListener('click', () => { running ? stop() : start(); });
 
+  // Watch the output for a whistle: one pitch standing far above the rest of the
+  // spectrum and holding steady for about a third of a second.
+  const spec = new Float32Array(1024);
+  let cand = -1, held = 0;
+  function guard() {
+    if (!guardOn) return;
+    const an = nodes.outAn;
+    an.getFloatFrequencyData(spec);
+    const binHz = ctx.sampleRate / an.fftSize;
+    const lo = Math.ceil(150 / binHz), hi = Math.min(spec.length - 2, Math.floor(9000 / binHz));
+    let peak = -Infinity, pi = -1, sum = 0;
+    for (let i = lo; i <= hi; i++) {
+      const v = spec[i]; sum += v;
+      if (v > peak) { peak = v; pi = i; }
+    }
+    const mean = sum / (hi - lo + 1);
+    if (peak > -45 && peak - mean > 32) {
+      if (cand >= 0 && Math.abs(pi - cand) <= 2) held++; else { cand = pi; held = 1; }
+    } else { cand = -1; held = 0; }
+    if (held < 20) return;
+    // Refine the pitch between neighbouring bins, then cut it.
+    const a = spec[pi - 1], b = spec[pi], c = spec[pi + 1];
+    const off = 0.5 * (a - c) / (a - 2 * b + c || 1);
+    squash((pi + off) * binHz);
+    cand = -1; held = 0;
+  }
+
+  function squash(hz) {
+    const t = ctx.currentTime;
+    // Reuse a filter already near this pitch and cut deeper, otherwise take the next one.
+    let f = nodes.notches.find(n => n.gain.value < 0 && Math.abs(n.frequency.value - hz) / hz < 0.03);
+    if (f) {
+      f.gain.setValueAtTime(Math.max(-40, f.gain.value - 8), t);
+    } else {
+      f = nodes.notches[nodes.slot++ % nodes.notches.length];
+      f.frequency.setValueAtTime(hz, t);
+      f.gain.setValueAtTime(-24, t);
+    }
+    // Duck the whole output for a moment so the loop dies out.
+    nodes.duck.gain.cancelScheduledValues(t);
+    nodes.duck.gain.setTargetAtTime(0.2, t, 0.01);
+    nodes.duck.gain.setTargetAtTime(1, t + 0.35, 0.25);
+    nodes.caught++;
+    gstat.textContent = 'stopped ' + (hz >= 1000 ? (hz / 1000).toFixed(2) + ' kHz' : Math.round(hz) + ' Hz') +
+      ' · ' + nodes.caught + ' caught';
+  }
+
+  $('guard').addEventListener('click', () => {
+    guardOn = !guardOn;
+    $('guard').setAttribute('aria-pressed', guardOn);
+    $('guard').textContent = guardOn ? 'On' : 'Off';
+    if (ctx && nodes.notches) {
+      // Turning the guard off also releases every cut.
+      if (!guardOn) nodes.notches.forEach(n => n.gain.setValueAtTime(0, ctx.currentTime));
+      gstat.textContent = guardOn ? 'listening' : '';
+    }
+    cand = -1; held = 0;
+  });
+
   function route() {
     if (!ctx || !nodes.limiter) return;
-    try { nodes.limiter.disconnect(); } catch (e) {}
+    try { nodes.limiter.disconnect(ctx.destination); } catch (e) {}
+    try { nodes.limiter.disconnect(nodes.streamOut); } catch (e) {}
     if (outMode === 'direct') {
       player.pause();
       nodes.limiter.connect(ctx.destination);
