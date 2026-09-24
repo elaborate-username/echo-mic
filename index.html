@@ -133,7 +133,7 @@
     <div id="dot"></div>
   </div>
 
-  <label class="row" for="boost">Mic boost <input id="boost" type="range" min="1" max="6" step="0.1" value="3"></label>
+  <label class="row" for="boost">Mic boost <input id="boost" type="range" min="0.5" max="6" step="0.1" value="1.8"></label>
   <label class="row" for="vol">Volume <input id="vol" type="range" min="0" max="1.5" step="0.01" value="1"></label>
   <div class="row">Mic level <div class="meter"><div id="lvl"></div></div></div>
   <div class="row out">Whistle guard <button id="guard" aria-pressed="true">On</button><span id="gstat"></span></div>
@@ -166,7 +166,7 @@
   function params() {
     const p = pos[mode];
     if (mode === 'echo') {
-      return { time: 0.05 + p.x * 0.75, feedback: p.y * 0.85, wet: 0.6 + p.y * 0.8 };
+      return { time: 0.05 + p.x * 0.75, feedback: p.y * 0.85, wet: 0.5 + p.y * 0.7 };
     }
     return { freq: 20 + p.x * 180, wet: p.y };
   }
@@ -193,7 +193,8 @@
     nodes.fb.gain.setTargetAtTime(echoOn ? v.feedback : 0, t, 0.03);
     if (echoOn) nodes.delay.delayTime.setTargetAtTime(v.time, t, 0.05);
     nodes.robotWet.gain.setTargetAtTime(echoOn ? 0 : v.wet, t, 0.03);
-    nodes.dry.gain.setTargetAtTime(echoOn ? 1 : 1 - v.wet * 0.9, t, 0.03);
+    // In echo mode the dry voice is kept low: you hear yourself anyway, and it is the main whistle path.
+    nodes.dry.gain.setTargetAtTime(echoOn ? 0.45 : 1 - v.wet * 0.9, t, 0.03);
     if (!echoOn) nodes.osc.frequency.setTargetAtTime(v.freq, t, 0.03);
   }
 
@@ -308,31 +309,37 @@
 
   micBtn.addEventListener('click', () => { running ? stop() : start(); });
 
-  // Watch the output for a whistle: one pitch standing far above the rest of the
-  // spectrum and holding steady for about a third of a second.
+  // Watch the output for a whistle: one pitch above 400 Hz standing far above the
+  // rest of the spectrum, holding its pitch and loudness for a moment. (Below 400 Hz
+  // a phone speaker hardly plays, and that is where the pitch of a voice sits.)
   const spec = new Float32Array(1024);
-  let cand = -1, held = 0;
+  let cand = -1, since = 0, top = -Infinity;
   function guard() {
     if (!guardOn) return;
     const an = nodes.outAn;
     an.getFloatFrequencyData(spec);
     const binHz = ctx.sampleRate / an.fftSize;
-    const lo = Math.ceil(150 / binHz), hi = Math.min(spec.length - 2, Math.floor(9000 / binHz));
+    const lo = Math.ceil(400 / binHz), hi = Math.min(spec.length - 2, Math.floor(9000 / binHz));
     let peak = -Infinity, pi = -1, sum = 0;
     for (let i = lo; i <= hi; i++) {
       const v = spec[i]; sum += v;
       if (v > peak) { peak = v; pi = i; }
     }
     const mean = sum / (hi - lo + 1);
-    if (peak > -45 && peak - mean > 32) {
-      if (cand >= 0 && Math.abs(pi - cand) <= 2) held++; else { cand = pi; held = 1; }
-    } else { cand = -1; held = 0; }
-    if (held < 20) return;
+    const now = performance.now();
+    if (peak > -50 && peak - mean > 28) {
+      if (cand < 0 || Math.abs(pi - cand) > 2) { cand = pi; since = now; top = peak; }
+      top = Math.max(top, peak);
+      // A voice fades between syllables; a whistle holds or grows.
+      if (top - peak > 6) { cand = pi; since = now; top = peak; }
+    } else { cand = -1; }
+    // A steady pitch at steady loudness for 180 ms is treated as a whistle.
+    if (cand < 0 || now - since < 180) return;
     // Refine the pitch between neighbouring bins, then cut it.
     const a = spec[pi - 1], b = spec[pi], c = spec[pi + 1];
     const off = 0.5 * (a - c) / (a - 2 * b + c || 1);
     squash((pi + off) * binHz);
-    cand = -1; held = 0;
+    cand = -1;
   }
 
   function squash(hz) {
@@ -348,8 +355,14 @@
     }
     // Duck the whole output for a moment so the loop dies out.
     nodes.duck.gain.cancelScheduledValues(t);
-    nodes.duck.gain.setTargetAtTime(0.2, t, 0.01);
-    nodes.duck.gain.setTargetAtTime(1, t + 0.35, 0.25);
+    nodes.duck.gain.setTargetAtTime(0.1, t, 0.005);
+    nodes.duck.gain.setTargetAtTime(1, t + 0.5, 0.3);
+    // Each whistle also turns Mic boost down a notch, so the app settles just below
+    // the point where this phone starts to whistle.
+    const boost = $('boost');
+    const nb = Math.max(+boost.min, +boost.value * 0.85);
+    boost.value = nb.toFixed(1);
+    nodes.input.gain.setTargetAtTime(nb, t, 0.02);
     nodes.caught++;
     gstat.textContent = 'stopped ' + (hz >= 1000 ? (hz / 1000).toFixed(2) + ' kHz' : Math.round(hz) + ' Hz') +
       ' · ' + nodes.caught + ' caught';
@@ -364,7 +377,7 @@
       if (!guardOn) nodes.notches.forEach(n => n.gain.setValueAtTime(0, ctx.currentTime));
       gstat.textContent = guardOn ? 'listening' : '';
     }
-    cand = -1; held = 0;
+    cand = -1;
   });
 
   function route() {
