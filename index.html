@@ -133,6 +133,7 @@
     <div id="dot"></div>
   </div>
 
+  <label class="row" for="boost">Mic boost <input id="boost" type="range" min="1" max="6" step="0.1" value="3"></label>
   <label class="row" for="vol">Volume <input id="vol" type="range" min="0" max="1.5" step="0.01" value="1"></label>
   <div class="row">Mic level <div class="meter"><div id="lvl"></div></div></div>
   <div class="row out">Whistle guard <button id="guard" aria-pressed="true">On</button><span id="gstat"></span></div>
@@ -165,7 +166,7 @@
   function params() {
     const p = pos[mode];
     if (mode === 'echo') {
-      return { time: 0.05 + p.x * 0.75, feedback: p.y * 0.85, wet: 0.25 + p.y * 0.75 };
+      return { time: 0.05 + p.x * 0.75, feedback: p.y * 0.85, wet: 0.6 + p.y * 0.8 };
     }
     return { freq: 20 + p.x * 180, wet: p.y };
   }
@@ -198,7 +199,7 @@
 
   function buildGraph() {
     const src = ctx.createMediaStreamSource(stream);
-    const input = ctx.createGain(); input.gain.value = 1.4;
+    const input = ctx.createGain(); input.gain.value = +$('boost').value;
     src.connect(input);
 
     const master = ctx.createGain(); master.gain.value = +$('vol').value;
@@ -414,6 +415,9 @@
   pad.addEventListener('pointerdown', e => { pad.setPointerCapture(e.pointerId); fromEvent(e); e.preventDefault(); });
   pad.addEventListener('pointermove', e => { if (pad.hasPointerCapture(e.pointerId)) fromEvent(e); });
 
+  $('boost').addEventListener('input', e => {
+    if (ctx) nodes.input.gain.setTargetAtTime(+e.target.value, ctx.currentTime, 0.02);
+  });
   $('vol').addEventListener('input', e => {
     if (ctx) nodes.master.gain.setTargetAtTime(+e.target.value, ctx.currentTime, 0.02);
   });
