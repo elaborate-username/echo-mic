@@ -16,6 +16,7 @@
     --muted: #8c93b8;
     --line: #2a3360;
     --hot: #ff5c8a;
+    --cool: #3fd0c9;
     color-scheme: dark;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -25,8 +26,8 @@
     color: var(--ink);
     font: 15px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
     display: flex; flex-direction: column; align-items: center;
-    padding: calc(env(safe-area-inset-top, 0px) + 20px) 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
-    gap: 20px;
+    padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+    gap: 14px;
     overflow: hidden;
     user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
     touch-action: none;
@@ -34,33 +35,31 @@
 
   #mic {
     position: relative; border: 0; background: none; padding: 0; cursor: pointer;
-    width: 150px; height: 190px; flex: none;
+    width: 124px; height: 158px; flex: none;
   }
   #mic svg { position: relative; width: 100%; height: 100%; overflow: visible; }
   #halo {
-    position: absolute; left: 50%; top: 70px; width: 170px; height: 170px;
-    margin: -85px 0 0 -85px; border-radius: 50%;
+    position: absolute; left: 50%; top: 58px; width: 150px; height: 150px;
+    margin: -75px 0 0 -75px; border-radius: 50%;
     background: radial-gradient(circle, var(--hot) 0%, transparent 65%);
     opacity: 0; pointer-events: none;
   }
   #mic:focus-visible { outline: 2px solid var(--hot); outline-offset: 6px; border-radius: 24px; }
-  #msg { font-size: 13px; color: var(--muted); text-align: center; max-width: 340px; margin: -8px 0 0; }
+  #msg { font-size: 13px; color: var(--muted); text-align: center; max-width: 340px; margin: -6px 0 0; }
   #msg:empty { display: none; }
 
+  #place { text-align: center; line-height: 1.25; }
+  #zone { font-size: 22px; font-weight: 700; letter-spacing: .01em; }
+  #facts { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #facts b { color: var(--cool); font-weight: 600; }
+
   #pad {
-    position: relative; width: 100%; max-width: 420px; flex: 1 1 auto; min-height: 180px;
-    border-radius: 20px; background:
-      linear-gradient(var(--line) 1px, transparent 1px) 0 0 / 100% 25%,
-      linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0 / 25% 100%,
-      linear-gradient(to top right, #1a2146, #2a1a3e);
-    border: 1px solid var(--line);
+    position: relative; width: 100%; max-width: 420px; flex: 1 1 auto; min-height: 200px;
+    border-radius: 20px; border: 1px solid var(--line);
+    background: linear-gradient(to top right, #161d40, #261a3c);
     touch-action: none; overflow: hidden;
   }
-  #dot {
-    position: absolute; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%;
-    background: var(--hot); box-shadow: 0 0 0 6px rgba(255,92,138,.25), 0 0 30px rgba(255,92,138,.6);
-    pointer-events: none;
-  }
+  #cv { position: absolute; inset: 0; width: 100%; height: 100%; }
   .axis { position: absolute; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); pointer-events: none; }
   #xlab { bottom: 10px; left: 50%; transform: translateX(-50%); }
   #ylab { left: 10px; top: 50%; transform: rotate(-90deg) translateX(50%); transform-origin: left top; }
@@ -90,41 +89,73 @@
   </button>
   <p id="msg"></p>
 
-  <div id="pad" aria-label="Echo pad: left-right is timing, up-down is intensity">
-    <span class="axis" id="xlab">Timing →</span>
-    <span class="axis" id="ylab">Intensity →</span>
-    <div id="dot"></div>
+  <div id="place" aria-live="polite">
+    <div id="zone">Hall</div>
+    <div id="facts"></div>
+  </div>
+
+  <div id="pad" aria-label="Echo pad: left-right is how far away the wall is, up-down is how many echoes come back">
+    <canvas id="cv"></canvas>
+    <span class="axis" id="xlab">Farther wall →</span>
+    <span class="axis" id="ylab">More echoes →</span>
   </div>
 
 <script>
 (() => {
   const $ = id => document.getElementById(id);
   const micBtn = $('mic'), msg = $('msg'), halo = $('halo'), led = $('led');
-  const pad = $('pad'), dot = $('dot');
+  const pad = $('pad'), cv = $('cv'), g = cv.getContext('2d');
+  const zoneEl = $('zone'), factsEl = $('facts');
+
+  const SPEED_OF_SOUND = 343; // m/s
+  const ZONES = [
+    { upTo: 20,  name: 'Tiled bathroom',  short: 'Bathroom' },
+    { upTo: 45,  name: 'Concert hall',    short: 'Hall' },
+    { upTo: 85,  name: 'Stadium',         short: 'Stadium' },
+    { upTo: 125, name: 'Mountain valley', short: 'Valley' },
+    { upTo: 1e9, name: 'Grand canyon',    short: 'Canyon' }
+  ];
 
   let ctx = null, stream = null, nodes = null, live = false;
-  const pos = { x: 0.35, y: 0.55 };
+  const pos = { x: 0.4, y: 0.5 };
 
-  // The phone plays ONLY the echoes, never your direct voice: you already hear
-  // yourself in the room, and a zero-delay copy is the fastest route to a whistle.
-  // Timing starts at 80 ms so the echo never lines up with your voice.
+  // The pad describes a place.
+  //  x: how far away the reflecting wall is. Sound travels there and back, so the
+  //     echo delay is 2 × distance / 343 m/s. Far walls also sound darker, because
+  //     air soaks up high frequencies over distance.
+  //  y: how reflective the place is: how much of each echo comes back again.
+  // The phone plays only the echoes, never your direct voice (you already hear
+  // that in the room, and a zero-delay copy is the quickest route to a whistle).
   function params() {
-    return { time: 0.08 + pos.x * 0.72, feedback: pos.y * 0.75, wet: 0.45 + pos.y * 0.65 };
+    const time = 0.06 + pos.x * 0.84;                  // 60–900 ms
+    const feedback = 0.12 + pos.y * 0.76;              // how much returns each time
+    const wet = 0.55 + pos.y * 0.55;
+    const bright = 6000 * (1 - pos.x * 0.7);           // 6 kHz near, 1.8 kHz far
+    const metres = SPEED_OF_SOUND * time / 2;
+    // Echoes still audible: until they have faded to 5% (about −26 dB).
+    const count = 1 + Math.floor(Math.log(0.05) / Math.log(feedback));
+    return { time, feedback, wet, bright, metres, count };
   }
 
-  function drawPad() {
-    dot.style.left = (pos.x * 100) + '%';
-    dot.style.top = ((1 - pos.y) * 100) + '%';
+  function describe() {
+    const v = params();
+    zoneEl.textContent = ZONES.find(z => v.metres <= z.upTo).name;
+    factsEl.innerHTML = 'Wall <b>' + Math.round(v.metres) + ' m</b> away · echo every <b>' +
+      Math.round(v.time * 1000) + ' ms</b> · <b>' + (v.count > 20 ? '20+' : v.count) + '</b> ' +
+      (v.count === 1 ? 'echo' : 'echoes');
   }
 
   function applyParams() {
+    describe();
     if (!nodes) return;
     const t = ctx.currentTime, v = params();
     nodes.wet.gain.setTargetAtTime(v.wet, t, 0.03);
     nodes.fb.gain.setTargetAtTime(v.feedback, t, 0.03);
     nodes.delay.delayTime.setTargetAtTime(v.time, t, 0.05);
+    nodes.tone.frequency.setTargetAtTime(v.bright, t, 0.05);
   }
 
+  // ---------- audio ----------
   async function start() {
     try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (e) {}
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -157,10 +188,10 @@
     const input = ctx.createGain(); input.gain.value = 1.5;
     src.connect(input);
 
-    // Echo: a delay whose output feeds back into itself, a little darker each repeat.
+    // Echo: a delay whose output feeds back into itself, darker each time round.
     const delay = ctx.createDelay(1.5);
     const fb = ctx.createGain();
-    const tone = ctx.createBiquadFilter(); tone.type = 'lowpass'; tone.frequency.value = 3200;
+    const tone = ctx.createBiquadFilter(); tone.type = 'lowpass';
     const wet = ctx.createGain();
     input.connect(delay); delay.connect(tone); tone.connect(fb); fb.connect(delay);
     tone.connect(wet);
@@ -184,12 +215,11 @@
     const inAn = ctx.createAnalyser(); inAn.fftSize = 512;
     input.connect(inAn);
 
-    nodes = { player, input, delay, fb, wet, notches, duck, outAn, inAn, slot: 0 };
+    nodes = { player, input, delay, fb, tone, wet, notches, duck, outAn, inAn, slot: 0 };
     applyParams();
     live = true;
     micBtn.setAttribute('aria-label', 'Stop live echo');
     led.setAttribute('fill', '#ff5c8a');
-    frame();
   }
 
   function stop() {
@@ -203,24 +233,11 @@
     halo.style.opacity = 0;
   }
 
-  // ---------- every frame: glow with your voice, watch the output for whistles ----------
-  const tbuf = new Float32Array(512);
-  const spec = new Float32Array(1024);
-  let cand = -1, since = 0, top = -Infinity;
-
-  function frame() {
-    if (!live) return;
-    nodes.inAn.getFloatTimeDomainData(tbuf);
-    let s = 0; for (let i = 0; i < tbuf.length; i++) s += tbuf[i] * tbuf[i];
-    const lvl = Math.min(1, Math.sqrt(s / tbuf.length) * 6);
-    halo.style.opacity = 0.25 + lvl * 0.75;
-    halo.style.transform = 'scale(' + (0.7 + lvl * 0.6) + ')';
-    guard();
-    requestAnimationFrame(frame);
-  }
-
+  // ---------- whistle guard (silent safety net) ----------
   // A whistle is one pitch above 400 Hz standing far above the rest of the spectrum,
   // holding its pitch and loudness. (A voice moves, and fades between syllables.)
+  const spec = new Float32Array(1024);
+  let cand = -1, since = 0, top = -Infinity;
   function guard() {
     const an = nodes.outAn;
     an.getFloatFrequencyData(spec);
@@ -259,8 +276,108 @@
     nodes.duck.gain.setTargetAtTime(0.1, t, 0.005);
     nodes.duck.gain.setTargetAtTime(1, t + 0.5, 0.3);
     // Each catch also lowers the mic a notch, settling just below this phone's whistle point.
-    const g = Math.max(0.5, nodes.input.gain.value * 0.85);
-    nodes.input.gain.setTargetAtTime(g, t, 0.02);
+    const gg = Math.max(0.5, nodes.input.gain.value * 0.85);
+    nodes.input.gain.setTargetAtTime(gg, t, 0.02);
+  }
+
+  // ---------- picture: your voice sends out ripples, one per echo ----------
+  // Each ring around the dot is one echo: spacing shows the timing, brightness how
+  // loud that echo still is. When you speak (or let go of the pad), ripples fire
+  // in the same rhythm as the echoes you hear.
+  let W = 0, H = 0, dpr = 1;
+  function resize() {
+    dpr = Math.min(3, window.devicePixelRatio || 1);
+    const r = pad.getBoundingClientRect();
+    W = r.width; H = r.height;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  }
+  window.addEventListener('resize', resize);
+
+  const ripples = []; // { at: ms when it appears, amp: 0..1 }
+  function sendEchoes(strength) {
+    const v = params(), now = performance.now();
+    let amp = strength;
+    for (let n = 1; n <= Math.min(v.count, 20); n++) {
+      ripples.push({ at: now + n * v.time * 1000, amp });
+      amp *= v.feedback;
+    }
+    if (ripples.length > 200) ripples.splice(0, ripples.length - 200);
+  }
+
+  function draw(now) {
+    const v = params();
+    const px = pos.x * W, py = (1 - pos.y) * H;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, W, H);
+
+    // Zone bands along the distance axis.
+    g.font = '600 10px -apple-system, system-ui, sans-serif';
+    g.textBaseline = 'top';
+    let prevX = 0;
+    ZONES.forEach((z, i) => {
+      const endMetres = Math.min(z.upTo, SPEED_OF_SOUND * 0.9 / 2);
+      const endX = ((endMetres * 2 / SPEED_OF_SOUND) - 0.06) / 0.84 * W;
+      if (i > 0) {
+        g.strokeStyle = 'rgba(140,147,184,0.18)'; g.lineWidth = 1;
+        g.beginPath(); g.moveTo(prevX, 0); g.lineTo(prevX, H); g.stroke();
+      }
+      g.fillStyle = 'rgba(140,147,184,0.55)';
+      const label = z.short;
+      const lw = g.measureText(label).width;
+      if (endX - prevX > lw + 8) g.fillText(label, prevX + 6, 8);
+      prevX = endX;
+    });
+
+    // Static rings: the echo pattern for this spot.
+    const spacing = 8 + pos.x * 34;
+    let a = 1;
+    for (let n = 1; n <= Math.min(v.count, 14); n++) {
+      g.strokeStyle = 'rgba(63,208,201,' + (0.55 * a).toFixed(3) + ')';
+      g.lineWidth = 2;
+      g.beginPath(); g.arc(px, py, 24 + n * spacing, 0, Math.PI * 2); g.stroke();
+      a *= v.feedback;
+    }
+
+    // Live ripples: each one grows out of the dot and fades.
+    for (let i = ripples.length - 1; i >= 0; i--) {
+      const r = ripples[i], age = (now - r.at) / 700;
+      if (age < 0) continue;
+      if (age > 1) { ripples.splice(i, 1); continue; }
+      g.strokeStyle = 'rgba(255,92,138,' + (r.amp * (1 - age)).toFixed(3) + ')';
+      g.lineWidth = 3 + 5 * r.amp * (1 - age);
+      g.beginPath(); g.arc(px, py, 24 + age * Math.max(W, H) * 0.6, 0, Math.PI * 2); g.stroke();
+    }
+
+    // The dot, flashing briefly as each echo arrives.
+    let flash = 0;
+    for (const r of ripples) {
+      const age = (now - r.at) / 150;
+      if (age >= 0 && age < 1) flash = Math.max(flash, r.amp * (1 - age));
+    }
+    g.fillStyle = 'rgba(255,92,138,0.25)';
+    g.beginPath(); g.arc(px, py, 30 + flash * 8, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#ff5c8a';
+    g.beginPath(); g.arc(px, py, 22, 0, Math.PI * 2); g.fill();
+  }
+
+  // ---------- every frame ----------
+  const tbuf = new Float32Array(512);
+  let loud = false, lastSend = 0;
+  function frame(now) {
+    if (W === 0) resize();
+    if (live) {
+      nodes.inAn.getFloatTimeDomainData(tbuf);
+      let s = 0; for (let i = 0; i < tbuf.length; i++) s += tbuf[i] * tbuf[i];
+      const lvl = Math.min(1, Math.sqrt(s / tbuf.length) * 6);
+      halo.style.opacity = 0.25 + lvl * 0.75;
+      halo.style.transform = 'scale(' + (0.7 + lvl * 0.6) + ')';
+      // Each new word (the level jumping up) sends out a train of ripples.
+      if (!loud && lvl > 0.18 && now - lastSend > 180) { sendEchoes(Math.min(1, lvl * 1.4)); lastSend = now; }
+      loud = lvl > 0.1 ? (loud || lvl > 0.18) : false;
+      guard();
+    }
+    draw(now);
+    requestAnimationFrame(frame);
   }
 
   // ---------- controls ----------
@@ -270,16 +387,19 @@
     const r = pad.getBoundingClientRect();
     pos.x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
     pos.y = Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height));
-    drawPad(); applyParams();
+    applyParams();
   }
   pad.addEventListener('pointerdown', e => { pad.setPointerCapture(e.pointerId); fromEvent(e); e.preventDefault(); });
   pad.addEventListener('pointermove', e => { if (pad.hasPointerCapture(e.pointerId)) fromEvent(e); });
+  // Letting go shows a preview of the echo rhythm for the new spot.
+  pad.addEventListener('pointerup', () => sendEchoes(0.9));
 
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && ctx && ctx.state !== 'running') ctx.resume();
   });
 
-  drawPad();
+  describe();
+  requestAnimationFrame(frame);
 })();
 </script>
 </body>
